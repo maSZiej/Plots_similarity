@@ -1,4 +1,4 @@
-#MACIEK BRANCH
+# MACIEK BRANCH
 
 gitignore - lista elementow na ignorowanych przez git
 
