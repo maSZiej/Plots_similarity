@@ -1,35 +1,63 @@
-
-#pickle is included in python packages
-import pickle
-# Import bibliotek
 import os
 import cv2
 import numpy as np
 from minisom import MiniSom
-import matplotlib.pyplot as plt
+import pickle
 
 # Ścieżka do folderu zawierającego obrazy PNG
 folder_path = "Wykresy"
 
-# Lista przechowująca dane obrazów
-images_data = []
+# Lista do przechowywania wysokości słupków ze wszystkich obrazów
+all_heights = []
 
-# Wczytywanie i przekształcanie obrazów do danych numerycznych
+# Próg minimalnej wysokości słupka
+min_height = 0.5
+
+# Przetwarzanie każdego obrazu w folderze
 for filename in os.listdir(folder_path):
     if filename.endswith(".png"):
-        img = cv2.imread(os.path.join(folder_path, filename), cv2.IMREAD_GRAYSCALE)  # Wczytanie obrazu w skali szarości
-        img_data = img.flatten()  # Spłaszczenie obrazu do jednowymiarowej tablicy
-        images_data.append(img_data)
+        img = cv2.imread(os.path.join(folder_path, filename))
+        hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
 
-# Konwersja listy na tablicę numpy
-images_data = np.array(images_data)
 
-# Tworzenie mapy SOM
-som = MiniSom(30, 30, images_data.shape[1], sigma=2, learning_rate=0.8)
-som.random_weights_init(images_data)
+        lower_white = np.array([0, 0, 180])
+        upper_white = np.array([255, 150, 255])
+        # Progowanie obrazu w przestrzeni kolorów HSV w celu wyodrębnienia obszarów białych
+        mask_white = cv2.inRange(hsv, lower_white, upper_white)
+        black_color_low=np.array([0,0,0])
+        black_color_high=np.array([360,255,170])
+        mask_black_color= cv2.inRange(hsv,black_color_low, black_color_high)
+        mask_not_black=cv2.bitwise_not(mask_black_color)
+        # Negacja maski białej, aby uzyskać obszary inne niż białe
+        mask_not_white = cv2.bitwise_not(mask_white)
+        # Progowanie obrazu w skali szarości w celu wyodrębnienia obszarów czarnych
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        _, mask_black = cv2.threshold(gray, 30, 255, cv2.THRESH_BINARY_INV)
+        # Połączenie maski czarnej i negowanej maski białej, aby uzyskać obszary inne niż czarne i białe
+        combined_mask = cv2.bitwise_and(mask_not_white, mask_not_black)
+        contours, _ = cv2.findContours(combined_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
 
-# Liczba epok treningowych
-n_epochs = 1000
+        for contour in contours:
+            x, y, w, h = cv2.boundingRect(contour)
+            if h >= min_height:
+                all_heights.append(h)
 
-som.train(images_data, 100,random_order=True, verbose=True)  
-    
+# Konwersja do tablicy numpy
+all_heights = np.array(all_heights)
+
+# Normalizacja wysokości słupków
+if all_heights.max() != all_heights.min():
+    all_heights = (all_heights - all_heights.min()) / (all_heights.max() - all_heights.min())
+else:
+    all_heights = all_heights / all_heights.max()
+
+# Trening SOM
+som = MiniSom(10, len(all_heights), 1, sigma=2, learning_rate=2)
+som.random_weights_init(all_heights.reshape(-1, 1))
+som.train_random(all_heights.reshape(-1, 1), 10000)
+
+# Zapisanie wytrenowanego modelu SOM
+with open("trained_som.pkl", "wb") as f:
+    pickle.dump(som, f)
+
+print("Trening SOM zakończony i zapisany do pliku trained_som.pkl")
